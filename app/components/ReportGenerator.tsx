@@ -4,7 +4,11 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ReportOption, generatePDF, downloadPDF } from "@/lib/reportService.client";
+import {
+  ReportOption,
+  generatePDF,
+  downloadPDF,
+} from "@/lib/reportService.client";
 
 interface ReportGeneratorProps {
   onReportGenerated?: (data: any) => void;
@@ -24,7 +28,7 @@ export default function ReportGenerator({
     null
   );
   const [reportData, setReportData] = useState<any[] | null>(null);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,7 +101,7 @@ export default function ReportGenerator({
   const handleReportSelect = (report: ReportOption) => {
     setSelectedReport(report);
     setReportData(null);
-    setPdfPreviewUrl(null);
+    setPdfDataUrl(null);
     setError(null);
     reset();
   };
@@ -140,58 +144,27 @@ export default function ReportGenerator({
     }
   };
 
+  const handleDownloadPDF = () => {
+    if (!pdfDataUrl || !selectedReport) return;
+
+    // Use the downloadPDF function from reportService
+    downloadPDF(
+      pdfDataUrl,
+      `${selectedReport.name}-${new Date().toISOString().split("T")[0]}.pdf`
+    );
+  };
+
   const handleGeneratePDF = async () => {
     if (!reportData || !selectedReport) return;
 
     setIsLoading(true);
     try {
-      // Call the API to generate the PDF
-      const response = await fetch("/api/reports/pdf", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reportData,
-          reportName: selectedReport.name,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to generate PDF");
-      }
-
-      const { pdfUrl, fileName } = await response.json();
-      setPdfPreviewUrl(pdfUrl);
-    } catch (err) {
-      setError("Failed to generate PDF. Please try again.");
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDownloadPDF = () => {
-    if (!pdfPreviewUrl || !selectedReport) return;
-
-    // Use the downloadPDF function from reportService
-    downloadPDF(
-      pdfPreviewUrl,
-      `${selectedReport.name}-${new Date().toISOString().split("T")[0]}.pdf`
-    );
-  };
-
-  const handleClientSidePDF = async () => {
-    if (!reportData || !selectedReport) return;
-
-    setIsLoading(true);
-    try {
       // Generate PDF on the client side using the reportService
-      const pdfDataUrl = await generatePDF(
+      const dataUrl = await generatePDF(
         "report-content",
         `${selectedReport.name}-${new Date().toISOString().split("T")[0]}.pdf`
       );
-      setPdfPreviewUrl(pdfDataUrl);
+      setPdfDataUrl(dataUrl);
     } catch (err) {
       setError("Failed to generate PDF. Please try again.");
       console.error(err);
@@ -354,20 +327,12 @@ export default function ReportGenerator({
                   <button
                     onClick={handleGeneratePDF}
                     disabled={isLoading}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
-                  >
-                    {isLoading ? "Generating PDF..." : "Generate PDF (Server)"}
-                  </button>
-
-                  <button
-                    onClick={handleClientSidePDF}
-                    disabled={isLoading}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
                   >
-                    {isLoading ? "Generating PDF..." : "Generate PDF (Client)"}
+                    {isLoading ? "Generating PDF..." : "Generate PDF"}
                   </button>
 
-                  {pdfPreviewUrl && (
+                  {pdfDataUrl && (
                     <button
                       onClick={handleDownloadPDF}
                       className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
@@ -376,19 +341,6 @@ export default function ReportGenerator({
                     </button>
                   )}
                 </div>
-
-                {pdfPreviewUrl && (
-                  <div className="mt-6">
-                    <h3 className="text-lg font-medium mb-2">PDF Preview</h3>
-                    <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-700">
-                      <iframe
-                        src={pdfPreviewUrl}
-                        className="w-full h-[600px] border-0"
-                        title="PDF Preview"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>

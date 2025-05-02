@@ -1,36 +1,145 @@
 import { NextRequest, NextResponse } from "next/server";
+import PDFDocument from "pdfkit";
+import { Buffer } from "buffer";
 
-// This is a server-side API endpoint for PDF generation
-// In a production environment, you would use a proper PDF generation library here
-// For this demo, we're just returning a mock PDF response
+// Set export config to use Node.js runtime instead of Edge
+export const runtime = "nodejs";
 
+// Function to create PDF buffer directly without streams
+async function createPDFBuffer(
+  reportData: any[],
+  reportName: string
+): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    try {
+      const chunks: Buffer[] = [];
+      const doc = new PDFDocument({ margin: 50 });
+
+      // Collect PDF data chunks
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      // Add content to the PDF
+      generatePDFContent(doc, reportData, reportName);
+
+      // Finalize the PDF
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Function to generate PDF content
+function generatePDFContent(
+  doc: PDFKit.PDFDocument,
+  reportData: any[],
+  reportName: string
+): void {
+  // Add title
+  doc
+    .fontSize(20)
+    .font("Helvetica-Bold")
+    .text(reportName, { align: "center" })
+    .moveDown(1);
+
+  // Add date
+  doc
+    .fontSize(12)
+    .font("Helvetica")
+    .text(`Generated on: ${new Date().toLocaleDateString()}`, {
+      align: "center",
+    })
+    .moveDown(2);
+
+  // Check if reportData is empty
+  if (!reportData || reportData.length === 0) {
+    doc.text("No data available for this report.");
+    return;
+  }
+
+  // Create table headers
+  const headers = Object.keys(reportData[0]);
+  const columnWidth = (doc.page.width - 100) / headers.length;
+
+  // Draw table headers
+  doc.font("Helvetica-Bold").fontSize(12);
+  headers.forEach((header, i) => {
+    doc.text(header, 50 + i * columnWidth, doc.y, {
+      width: columnWidth,
+      align: "left",
+    });
+  });
+  doc.moveDown(0.5);
+  doc
+    .strokeColor("#aaaaaa")
+    .lineWidth(1)
+    .moveTo(50, doc.y)
+    .lineTo(doc.page.width - 50, doc.y)
+    .stroke();
+  doc.moveDown(0.5);
+
+  // Draw table rows
+  doc.font("Helvetica").fontSize(10);
+  reportData.forEach((row: any, rowIndex: number) => {
+    // Check if we need a new page
+    if (doc.y > doc.page.height - 100) {
+      doc.addPage();
+    }
+
+    // Draw each cell in the row
+    headers.forEach((header, i) => {
+      const cellValue = row[header]?.toString() || "";
+      doc.text(cellValue, 50 + i * columnWidth, doc.y, {
+        width: columnWidth,
+        align: "left",
+      });
+    });
+
+    // Move to the next row
+    doc.moveDown(1);
+
+    // Draw a line between rows
+    if (rowIndex < reportData.length - 1) {
+      doc
+        .strokeColor("#eeeeee")
+        .lineWidth(0.5)
+        .moveTo(50, doc.y - 5)
+        .lineTo(doc.page.width - 50, doc.y - 5)
+        .stroke();
+    }
+  });
+}
+
+// POST endpoint to generate PDF from report data
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { reportData, reportName } = body;
 
-    if (!reportData) {
+    if (!reportData || !reportName) {
       return NextResponse.json(
-        { error: "Report data is required" },
+        { error: "Report data and name are required" },
         { status: 400 }
       );
     }
 
-    // In a real implementation, you would generate a PDF here using a library
-    // For example, using PDFKit, jsPDF on the server, or a service like Puppeteer
-    // For this demo, we'll just return a mock PDF data URL
+    // Get the PDF buffer
+    const pdfBuffer = await createPDFBuffer(reportData, reportName);
 
-    // Simulate PDF generation delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Convert buffer to base64 for preview
 
-    // This is a minimal valid PDF in base64 format for demonstration
-    const mockPdfBase64 =
-      "JVBERi0xLjcKJeLjz9MKNSAwIG9iago8PCAvVHlwZSAvWE9iamVjdCAvU3VidHlwZSAvSW1hZ2UgL1dpZHRoIDEyMDAgL0hlaWdodCA4MDAgL0JpdHNQZXJDb21wb25lbnQgOCAvQ29sb3JTcGFjZSAvRGV2aWNlUkdCIC9GaWx0ZXIgL0RDVERlY29kZSAvTGVuZ3RoIDEyMzQ1ID4+CnN0cmVhbQpRRUQKZW5kc3RyZWFtCmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMyAwIFIgL1Jlc291cmNlcyA2IDAgUiAvQ29udGVudHMgNyAwIFIgL01lZGlhQm94IFswIDAgNTk1LjI3NiA4NDEuODldID4+CmVuZG9iago3IDAgb2JqCjw8IC9MZW5ndGggOCAwIFIgL0ZpbHRlciAvRmxhdGVEZWNvZGUgPj4Kc3RyZWFtClhYWApzdHJlYW0KZW5kb2JqCjggMCBvYmoKMwplbmRvYmoKMyAwIG9iago8PCAvVHlwZSAvUGFnZXMgL0tpZHMgWyA0IDAgUiBdIC9Db3VudCAxID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9DYXRhbG9nIC9QYWdlcyAzIDAgUiA+PgplbmRvYmoKMSAwIG9iago8PCAvUHJvZHVjZXIgKEpzUERGKSAvQ3JlYXRpb25EYXRlIChEOjIwMjMwNzI3MTIwMDAwKSA+PgplbmRvYmoKNiAwIG9iago8PCAvUHJvY1NldCBbIC9QREYgL1RleHQgL0ltYWdlQiAvSW1hZ2VDIC9JbWFnZUkgXSA+PgplbmRvYmoKeHJlZgowIDkKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMjgzIDAwMDAwIG4gCjAwMDAwMDAyMzQgMDAwMDAgbiAKMDAwMDAwMDE4MSAwMDAwMCBuIAowMDAwMDAwMDU5IDAwMDAwIG4gCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDM1OCAwMDAwMCBuIAowMDAwMDAwMTY1IDAwMDAwIG4gCjAwMDAwMDAxNjIgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA5IC9Sb290IDIgMCBSIC9JbmZvIDEgMCBSID4+CnN0YXJ0eHJlZgo0MjEKJSVFT0YK";
+    // Convert buffer to base64 for preview
+    const pdfBase64 = pdfBuffer.toString("base64");
+    const pdfUrl = `data:application/pdf;base64,${pdfBase64}`;
 
-    return NextResponse.json({
-      pdfUrl: `data:application/pdf;base64,${mockPdfBase64}`,
-      fileName: `${reportName || "report"}-${new Date().toISOString().split("T")[0]}.pdf`,
-    });
+    // Generate a filename
+    const fileName = `${reportName.replace(/\s+/g, "-").toLowerCase()}-${
+      new Date().toISOString().split("T")[0]
+    }.pdf`;
+
+    return NextResponse.json({ pdfUrl, fileName });
   } catch (error) {
     console.error("Error generating PDF:", error);
     return NextResponse.json(
