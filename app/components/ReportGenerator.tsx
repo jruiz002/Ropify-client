@@ -19,7 +19,9 @@ export default function ReportGenerator({
   onReportGenerated,
 }: ReportGeneratorProps) {
   const { reportOptions, error } = useReportOptions();
-  const [selectedReport, setSelectedReport] = useState<ReportOption | null>(null);
+  const [selectedReport, setSelectedReport] = useState<ReportOption | null>(
+    null
+  );
   const [reportData, setReportData] = useState<any[] | null>(null);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [csvUrl, setCsvUrl] = useState<string | null>(null);
@@ -29,24 +31,69 @@ export default function ReportGenerator({
     if (!report) return z.object({});
     const schemaFields: Record<string, any> = {};
 
+    // Store field names for date validation
+    let startDateField = "";
+    let endDateField = "";
+
     report.fields.forEach((field) => {
       let fieldSchema;
       switch (field.type) {
-        case "text": fieldSchema = z.string(); break;
-        case "number": fieldSchema = z.number(); break;
-        case "date": fieldSchema = z.string()
-          .refine(
-            (val) => new Date(val) <= new Date(),
-            { message: "La fecha no puede ser mayor a hoy." }
-          ); break;
-        case "boolean": fieldSchema = z.boolean(); break;
-        default: fieldSchema = z.string();
+        case "text":
+          fieldSchema = z.string();
+          break;
+        case "number":
+          fieldSchema = z.number();
+          break;
+        case "select":
+          fieldSchema = field.options?.some(
+            (opt) => typeof opt.value === "number"
+          )
+            ? z.number()
+            : z.string();
+          break;
+        case "date":
+          fieldSchema = z
+            .string()
+            .refine((val) => new Date(val) <= new Date(), {
+              message: "La fecha no puede ser mayor a hoy.",
+            });
+
+          // Track date fields for start/end validation
+          if (field.name.includes("inicio")) {
+            startDateField = field.name;
+          } else if (field.name.includes("fin")) {
+            endDateField = field.name;
+          }
+          break;
+        case "boolean":
+          fieldSchema = z.boolean();
+          break;
+        default:
+          fieldSchema = z.string();
       }
       if (!field.required) fieldSchema = fieldSchema.optional();
       schemaFields[field.name] = fieldSchema;
     });
 
-    return z.object(schemaFields);
+    // Create schema with refinement for date validation if both fields exist
+    const schema = z.object(schemaFields);
+
+    if (startDateField && endDateField) {
+      return schema.refine(
+        (data) => {
+          const startDate = new Date(data[startDateField] as string);
+          const endDate = new Date(data[endDateField] as string);
+          return startDate <= endDate;
+        },
+        {
+          message:
+            "La fecha de inicio debe ser anterior a la fecha de fin",
+          path: [endDateField], 
+        }
+      );
+    }
+
+    return schema;
   };
 
   const formSchema = createFormSchema(selectedReport);
@@ -129,11 +176,13 @@ export default function ReportGenerator({
     if (!reportData || !selectedReport) return;
 
     const headers = Object.keys(reportData[0]).join(",");
-    const rows = reportData.map(row =>
-      Object.values(row).join(",")
-    ).join("\n");
+    const rows = reportData
+      .map((row) => Object.values(row).join(","))
+      .join("\n");
     const csvContent = `${headers}\n${rows}`;
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
 
     const url = URL.createObjectURL(blob);
     setCsvUrl(url);
@@ -141,7 +190,9 @@ export default function ReportGenerator({
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-10 bg-[#ffffff] rounded-xl shadow-md">
-      <h1 className="text-4xl font-bold text-[#5e9188] mb-2">Generador de Reportes</h1>
+      <h1 className="text-4xl font-bold text-[#5e9188] mb-2">
+        Generador de Reportes
+      </h1>
       <p className="text-lg text-[#3e5954] mb-8">
         Selecciona un reporte, llena los campos y genera los resultados.
       </p>
@@ -164,10 +215,11 @@ export default function ReportGenerator({
               reportOptions.map((report) => (
                 <div
                   key={report.id}
-                  className={`p-4 border rounded-lg transition-colors cursor-pointer ${selectedReport?.id === report.id
-                    ? "border-[#5e9188] bg-[#dce0e6]"
-                    : "border-gray-200 hover:bg-[#e8e8e8]"
-                    }`}
+                  className={`p-4 border rounded-lg transition-colors cursor-pointer ${
+                    selectedReport?.id === report.id
+                      ? "border-[#5e9188] bg-[#dce0e6]"
+                      : "border-gray-200 hover:bg-[#e8e8e8]"
+                  }`}
                   onClick={() => handleReportSelect(report)}
                 >
                   <h3 className="text-md font-medium text-[#232226]">
@@ -211,6 +263,26 @@ export default function ReportGenerator({
                           {...register(field.name)}
                           className="h-4 w-4"
                         />
+                      ) : field.type === "select" ? (
+                        <select
+                          id={field.name}
+                          {...register(field.name, {
+                            valueAsNumber: field.options?.some(
+                              (opt) => typeof opt.value === "number"
+                            ),
+                          })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-[#232226]"
+                        >
+                          <option value="">Seleccionar...</option>
+                          {field.options?.map((option) => (
+                            <option
+                              key={option.value.toString()}
+                              value={option.value}
+                            >
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       ) : (
                         <input
                           type={
@@ -251,84 +323,92 @@ export default function ReportGenerator({
                   <h3 className="text-lg font-semibold text-[#232226] mb-3">
                     Resultados
                   </h3>
-                  <div
-                    className="overflow-x-auto border rounded-lg mb-4"
-                    id="report-content"
-                  >
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-[#dce0e6] text-[#253342]">
-                        <tr>
-                          {Object.keys(reportData[0]).map((key) => (
-                            <th
-                              key={key}
-                              className="px-4 py-2 text-left font-medium"
-                            >
-                              {key}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {reportData.map((row, i) => (
-                          <tr key={i}>
-                            {Object.values(row).map((val, j) => (
-                              <td
-                                key={j}
-                                className="px-4 py-2 text-[#232226] whitespace-nowrap"
+                  {Array.isArray(reportData) && reportData.length > 0 ? (
+                    <div
+                      className="overflow-x-auto border rounded-lg mb-4"
+                      id="report-content"
+                    >
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-[#dce0e6] text-[#253342]">
+                          <tr>
+                            {Object.keys(reportData[0]).map((key) => (
+                              <th
+                                key={key}
+                                className="px-4 py-2 text-left font-medium"
                               >
-                                {val as React.ReactNode}
-                              </td>
+                                {key}
+                              </th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="flex gap-4">
-                    <button
-                      onClick={handleGeneratePDF}
-                      disabled={isLoading}
-                      className="px-5 py-2 bg-[#3e5954] text-white rounded-md hover:bg-[#1f1f20] transition disabled:opacity-50"
-                    >
-                      {isLoading ? "Generando PDF..." : "Generar PDF"}
-                    </button>
-
-                    <button
-                      onClick={handleGenerateCSV}
-                      disabled={isLoading}
-                      className="px-5 py-2 bg-[#3e5954] text-white rounded-md hover:bg-[#3e5954] transition disabled:opacity-50"
-                    >
-                      {isLoading ? "Generando CSV..." : "Generar CSV"}
-                    </button>
-
-                    {csvUrl && (
+                        </thead>
+                        <tbody className="divide-y">
+                          {reportData.map((row, i) => (
+                            <tr key={i}>
+                              {Object.values(row).map((val, j) => (
+                                <td
+                                  key={j}
+                                  className="px-4 py-2 text-[#232226] whitespace-nowrap"
+                                >
+                                  {val as React.ReactNode}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-[#606d80] text-sm mb-4">
+                      No se encontraron resultados para los filtros seleccionados.
+                    </div>
+                  )}
+                  {Array.isArray(reportData) && reportData.length > 0 && (
+                    <div className="flex gap-4">
                       <button
-                        onClick={handleDownloadCSV}
-                        className="px-5 py-2 bg-[#253342] text-white rounded-md hover:bg-[#232226] transition"
+                        onClick={handleGeneratePDF}
+                        disabled={isLoading}
+                        className="px-5 py-2 bg-[#3e5954] text-white rounded-md hover:bg-[#1f1f20] transition disabled:opacity-50"
                       >
-                        Descargar CSV
+                        {isLoading ? "Generando PDF..." : "Generar PDF"}
                       </button>
-                    )}
 
-                    {pdfDataUrl && (
                       <button
-                        onClick={handleDownloadPDF}
-                        className="px-5 py-2 bg-[#253342] text-white rounded-md hover:bg-[#232226] transition"
+                        onClick={handleGenerateCSV}
+                        disabled={isLoading}
+                        className="px-5 py-2 bg-[#3e5954] text-white rounded-md hover:bg-[#3e5954] transition disabled:opacity-50"
                       >
-                        Descargar PDF
+                        {isLoading ? "Generando CSV..." : "Generar CSV"}
                       </button>
-                    )}
-                  </div>
+
+                      {csvUrl && (
+                        <button
+                          onClick={handleDownloadCSV}
+                          className="px-5 py-2 bg-[#253342] text-white rounded-md hover:bg-[#232226] transition"
+                        >
+                          Descargar CSV
+                        </button>
+                      )}
+
+                      {pdfDataUrl && (
+                        <button
+                          onClick={handleDownloadPDF}
+                          className="px-5 py-2 bg-[#253342] text-white rounded-md hover:bg-[#232226] transition"
+                        >
+                          Descargar PDF
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </>
           ) : (
-            <p className="text-[#606d80]">Selecciona un reporte para empezar.</p>
+            <p className="text-[#606d80]">
+              Selecciona un reporte para empezar.
+            </p>
           )}
         </div>
       </div>
     </div>
   );
-
 }

@@ -25,10 +25,8 @@ Retrieves all available report options with their fields.
         "type": "date",
         "required": true
       }
-      // Additional fields...
     ]
   }
-  // Additional report options...
 ]
 ```
 
@@ -62,7 +60,6 @@ The response format varies depending on the report type, but generally follows t
     "amount": 125.5,
     "status": "Completed"
   }
-  // Additional report data...
 ]
 ```
 

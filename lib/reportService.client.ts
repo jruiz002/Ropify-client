@@ -5,8 +5,9 @@ import html2canvas from "html2canvas";
 export interface ReportField {
   name: string;
   label: string;
-  type: "text" | "number" | "date" | "boolean";
+  type: "text" | "number" | "date" | "boolean" | "select";
   required?: boolean;
+  options?: Array<{ value: string | number; label: string }>;
 }
 
 export interface ReportOption {
@@ -63,7 +64,6 @@ export async function generatePDF(
       allowTaint: true,
       backgroundColor: "#ffffff",
       onclone: (documentClone, elementClone) => {
-        // Additional processing can be done here if needed
         console.log("Document cloned for PDF generation");
       },
     });
